@@ -20,15 +20,6 @@ uint32_t completed_frame_count;
 
 uint8_t lepton_i2c_buffer[36];
 
-uint32_t completed_yuv_frame_count;
-yuv422_buffer_t yuv_buffers[2];
-
-struct rgb_to_yuv_state {
-  struct pt pt;
-  lepton_buffer *restrict rgb;
-  yuv422_buffer_t *restrict buffer;
-};
-
 #if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING)
 #define DEBUG_PRINTF(...) printf( __VA_ARGS__);
 #else
@@ -41,13 +32,6 @@ uint32_t get_lepton_buffer(lepton_buffer **buffer)
   if (buffer != NULL)
     *buffer = completed_buffer;
 	return completed_frame_count;
-}
-
-uint32_t get_lepton_buffer_yuv(yuv422_buffer_t **buffer)
-{
-  if (buffer != NULL)
-    *buffer = &yuv_buffers[completed_yuv_frame_count%2];
-	return completed_yuv_frame_count;
 }
 
 void init_lepton_state(void);
@@ -75,6 +59,13 @@ static void print_telemetry_temps(telemetry_data_l2* telemetry)
 		(int)(aux_c), (int)((aux_c-(int)aux_c)*100));
 }
 
+#define NUM_SEGMENTS (4)
+typedef lepton_buffer frame_buffer[NUM_SEGMENTS];
+
+frame_buffer lepton_buffers[2];
+int back_buffer = 0;
+int pending_segment = 0;
+
 PT_THREAD( lepton_task(struct pt *pt))
 {
 	PT_BEGIN(pt);
@@ -84,13 +75,14 @@ PT_THREAD( lepton_task(struct pt *pt))
 	static uint32_t last_logged_count = 0;
 	static uint32_t current_frame_count = 0;
 	static lepton_buffer *current_buffer;
-	static struct pt rgb_to_yuv_pt;
 	static int transferring_timer = 0;
 	curtick = last_tick = HAL_GetTick();
 
 	while (1)
 	{
-		current_buffer = lepton_transfer();
+		current_buffer = &lepton_buffers[back_buffer][pending_segment];
+		set_current_lepton_buffer(current_buffer);
+		lepton_transfer();
 
 		transferring_timer = HAL_GetTick();
 		PT_YIELD_UNTIL(pt, current_buffer->status != LEPTON_STATUS_TRANSFERRING || ((HAL_GetTick() - transferring_timer) > 200));
@@ -139,74 +131,27 @@ PT_THREAD( lepton_task(struct pt *pt))
 			last_logged_count = current_frame_count;
 		}
 
+		int segment_number = (current_buffer->lines[20].header[0] >> 12) & 0x7;
+		int segment_index = segment_number - 1; // number = 0, index = -1 indicates that this is a repeat
+
+//		if(! segment_index){
+//			HAL_GPIO_TogglePin(SYSTEM_LED_GPIO_Port, SYSTEM_LED_Pin);
+//		}
+
 		// Need to update completed buffer for clients?
-#ifdef Y16
-		if (completed_frame_count != current_frame_count)
-#else
-		if ((current_frame_count % 3) == 0)
-#endif
-		{
-			completed_buffer = current_buffer;
-			completed_frame_count = current_frame_count;
-
-			HAL_GPIO_TogglePin(SYSTEM_LED_GPIO_Port, SYSTEM_LED_Pin);
-
-#ifndef Y16
-			PT_SPAWN(
-				pt,
-				&rgb_to_yuv_pt,
-				rgb_to_yuv(&rgb_to_yuv_pt, completed_buffer, &yuv_buffers[(completed_yuv_frame_count + 1) % 2])
-			);
-#endif
+		if (pending_segment == segment_index){
+			if(pending_segment == 3){
+				completed_frame_count ++;
+				completed_buffer = &lepton_buffers[back_buffer][0];
+				back_buffer = ! back_buffer;
+				HAL_GPIO_TogglePin(SYSTEM_LED_GPIO_Port, SYSTEM_LED_Pin);
+				pending_segment = 0;
+			}else{
+				pending_segment ++;
+			}
+		}else{
+			pending_segment = 0;
 		}
 	}
-	PT_END(pt);
-}
-
-static inline uint8_t clamp (float x)
-{
-  if (x < 0)         return 0;
-  else if (x > 255)  return 255;
-  else               return (uint8_t)x;
-}
-
-PT_THREAD( rgb_to_yuv(struct pt *pt, lepton_buffer *restrict lepton, yuv422_buffer_t *restrict buffer))
-{
-  PT_BEGIN(pt);
-
-  static int row, col;
-
-  for (row = 0; row < IMAGE_NUM_LINES; row++)
-  {
-    uint16_t* lineptr = (uint16_t*)lepton->lines[IMAGE_OFFSET_LINES + row].data.image_data;
-    while (lineptr < (uint16_t*)&lepton->lines[IMAGE_OFFSET_LINES + row].data.image_data[FRAME_LINE_LENGTH])
-    {
-      uint8_t* bytes = (uint8_t*)lineptr;
-      *lineptr++ = bytes[0] << 8 | bytes[1];
-    }
-
-    for (col = 0; col < FRAME_LINE_LENGTH; col++)
-    {
-#ifdef Y16
-      uint16_t val = lepton->lines[IMAGE_OFFSET_LINES + row].data.image_data[col];
-      buffer->data[row][col] = (yuv422_t){ (uint8_t)val, 128 };
-#else
-      rgb_t val = lepton->lines[IMAGE_OFFSET_LINES + row].data.image_data[col];
-      float r = val.r, g = val.g, b = val.b;
-
-      float y1 = 0.299f * r + 0.587f * g + 0.114f * b;
-
-      buffer->data[row][col].y =    clamp (0.859f *      y1  +  16.0f);
-      if ((col % 2) == 0)
-        buffer->data[row][col].uv = clamp (0.496f * (b - y1) + 128.0f);
-      else
-        buffer->data[row][col].uv = clamp (0.627f * (r - y1) + 128.0f);
-#endif
-    }
-    PT_YIELD(pt);
-  }
-
-  completed_yuv_frame_count++;
-
 	PT_END(pt);
 }

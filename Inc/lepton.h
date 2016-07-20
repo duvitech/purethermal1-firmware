@@ -128,8 +128,9 @@ typedef struct __attribute__((packed)) _yuv422_buffer {
   yuv422_row_t data[IMAGE_NUM_LINES];
 } yuv422_buffer_t;
 
+void set_current_lepton_buffer(lepton_buffer *buff);
 lepton_status complete_lepton_transfer(lepton_buffer *);
-lepton_buffer* lepton_transfer(void);
+void lepton_transfer(void);
 
 void print_image_binary_background(void);
 void lepton_init(void );
