@@ -26,11 +26,17 @@ uint8_t lepton_i2c_buffer[36];
 #define DEBUG_PRINTF(...)
 #endif
 
+lepton_buffer buffer;
 
-uint32_t get_lepton_buffer(lepton_buffer **buffer)
+frame_buffer lepton_buffers[2];
+int back_buffer = 0;
+int pending_segment = 0;
+
+
+uint32_t get_frame_buffer(frame_buffer **buffer)
 {
   if (buffer != NULL)
-    *buffer = completed_buffer;
+    *buffer = &lepton_buffers[!back_buffer];
 	return completed_frame_count;
 }
 
@@ -58,13 +64,6 @@ static void print_telemetry_temps(telemetry_data_l2* telemetry)
 		(int)(fpa_c), (int)((fpa_c-(int)fpa_c)*100),
 		(int)(aux_c), (int)((aux_c-(int)aux_c)*100));
 }
-
-#define NUM_SEGMENTS (4)
-typedef lepton_buffer frame_buffer[NUM_SEGMENTS];
-
-frame_buffer lepton_buffers[2];
-int back_buffer = 0;
-int pending_segment = 0;
 
 PT_THREAD( lepton_task(struct pt *pt))
 {
@@ -143,8 +142,8 @@ PT_THREAD( lepton_task(struct pt *pt))
 			if(pending_segment == 3){
 				completed_frame_count ++;
 				completed_buffer = &lepton_buffers[back_buffer][0];
-				back_buffer = ! back_buffer;
 				HAL_GPIO_TogglePin(SYSTEM_LED_GPIO_Port, SYSTEM_LED_Pin);
+				back_buffer = ! back_buffer;
 				pending_segment = 0;
 			}else{
 				pending_segment ++;
