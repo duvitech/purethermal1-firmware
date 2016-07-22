@@ -15,7 +15,6 @@
 #include "project_config.h"
 
 
-lepton_buffer *completed_buffer;
 uint32_t completed_frame_count;
 
 uint8_t lepton_i2c_buffer[36];
@@ -26,17 +25,24 @@ uint8_t lepton_i2c_buffer[36];
 #define DEBUG_PRINTF(...)
 #endif
 
-lepton_buffer buffer;
+#define NUM_FRAMES_BUFFERED (3)
+frame_buffer lepton_buffers[NUM_FRAMES_BUFFERED];
 
-frame_buffer lepton_buffers[2];
-int back_buffer = 0;
+int inprogress_index = 0;
 int pending_segment = 0;
+
+static inline next_frame(int idx){
+	return (idx + 1) % NUM_FRAMES_BUFFERED;
+}
+static inline prev_frame(int idx){
+	return (idx + NUM_FRAMES_BUFFERED - 1) % NUM_FRAMES_BUFFERED;
+}
 
 
 uint32_t get_frame_buffer(frame_buffer **buffer)
 {
   if (buffer != NULL)
-    *buffer = &lepton_buffers[!back_buffer];
+    *buffer = &lepton_buffers[prev_frame(inprogress_index)];
 	return completed_frame_count;
 }
 
@@ -79,7 +85,7 @@ PT_THREAD( lepton_task(struct pt *pt))
 
 	while (1)
 	{
-		current_buffer = &lepton_buffers[back_buffer][pending_segment];
+		current_buffer = &lepton_buffers[inprogress_index][pending_segment];
 		set_current_lepton_buffer(current_buffer);
 		lepton_transfer();
 
@@ -141,9 +147,8 @@ PT_THREAD( lepton_task(struct pt *pt))
 		if (pending_segment == segment_index){
 			if(pending_segment == 3){
 				completed_frame_count ++;
-				completed_buffer = &lepton_buffers[back_buffer][0];
 				HAL_GPIO_TogglePin(SYSTEM_LED_GPIO_Port, SYSTEM_LED_Pin);
-				back_buffer = ! back_buffer;
+				inprogress_index = next_frame(inprogress_index);
 				pending_segment = 0;
 			}else{
 				pending_segment ++;
