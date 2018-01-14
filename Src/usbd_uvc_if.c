@@ -33,6 +33,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "usbd_uvc_if.h"
 #include "usbd_uvc_lepton_xu.h"
+#include "lepton.h"
+#include "tasks.h"
 
 #if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING)
 #define DEBUG_PRINTF(...) printf( __VA_ARGS__);
@@ -40,8 +42,11 @@
 #define DEBUG_PRINTF(...)
 #endif
 
+extern volatile uint8_t g_lepton_type_3;
+
 // #define UVC_VC_DEBUG
 // #define UVC_VS_DEBUG
+// #define UVC_VC_FORCE_SYNCHRONOUS
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
   * @{
@@ -278,7 +283,24 @@ static int8_t UVC_VC_ControlGet  (VC_TERMINAL_ID entity_id, uint8_t cmd, uint8_t
       break;
     case UVC_GET_CUR:
       if (length > 1)
+      {
+#ifdef UVC_VC_FORCE_SYNCHRONOUS
         VC_LEP_GetAttribute(entity_id, (cs_value - 1) << 2, pbuf, length);
+#else
+#ifdef UVC_VC_DEBUG
+        DEBUG_PRINTF(" dispatching \r\n");
+#endif
+        if (enqueue_attribute_xfer_task((struct uvc_request) {
+              .type = UVC_REQUEST_TYPE_ATTR_GET,
+              .entity_id = entity_id,
+              .control_id = (cs_value - 1) << 2,
+              .length = length,
+            }) == HAL_OK)
+          return (USBD_BUSY);
+        else
+          return (USBD_FAIL);
+#endif
+      }
       break;
     case UVC_GET_MAX:
       VC_LEP_GetMaxValue(entity_id, (cs_value - 1) << 2, pbuf, length);
@@ -375,10 +397,26 @@ static int8_t UVC_VC_ControlSet  (VC_TERMINAL_ID entity_id, uint8_t cmd, uint8_t
   case VC_CONTROL_XU_LEP_RAD_ID:
   case VC_CONTROL_XU_LEP_SYS_ID:
   case VC_CONTROL_XU_LEP_VID_ID:
+#ifdef UVC_VC_FORCE_SYNCHRONOUS
     if (length == 1)
       VC_LEP_RunCommand(entity_id, (cs_value - 1) << 2);
     else
       VC_LEP_SetAttribute(entity_id, (cs_value - 1) << 2, pbuf, length);
+#else
+#ifdef UVC_VC_DEBUG
+    DEBUG_PRINTF(" dispatching \r\n");
+#endif
+    if (enqueue_attribute_xfer_task((struct uvc_request) {
+          .type = UVC_REQUEST_TYPE_ATTR_SET,
+          .entity_id = entity_id,
+          .control_id = (cs_value - 1) << 2,
+          .length = length,
+          .buffer = pbuf,
+        }) == HAL_OK)
+      return (USBD_BUSY);
+    else
+      return (USBD_FAIL);
+#endif
     break;
   case VC_CONTROL_PU_ID:
     break;
@@ -446,26 +484,29 @@ static int8_t UVC_VS_ControlGet  (uint8_t cmd, uint8_t* pbuf, uint16_t length, u
           cmd == UVC_GET_MAX ||
           cmd == UVC_GET_CUR)
       {
+        uint8_t w = 80, h = 60;
+        if (g_lepton_type_3)
+        {
+          w = 160;
+          h = 120;
+        }
+
         switch(videoProbeControl.bFormatIndex) {
-        case VS_FMT_INDEX(NV12):
-        case VS_FMT_INDEX(YU12):
-          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(80,60,VS_FMT_SIZE(NV12));
-          break;
         case VS_FMT_INDEX(GREY):
-          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(80,60,VS_FMT_SIZE(GREY));
+          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(w,h,VS_FMT_SIZE(GREY));
           break;
         case VS_FMT_INDEX(Y16):
-          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(80,60,VS_FMT_SIZE(Y16));
+          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(w,h,VS_FMT_SIZE(Y16));
           break;
         case VS_FMT_INDEX(BGR3):
-          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(80,60,VS_FMT_SIZE(BGR3));
+          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(w,h,VS_FMT_SIZE(BGR3));
           break;
         case VS_FMT_INDEX(RGB565):
-          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(80,60,VS_FMT_SIZE(RGB565));
+          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(w,h,VS_FMT_SIZE(RGB565));
           break;
         case VS_FMT_INDEX(YUYV):
         default:
-          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(80,60,VS_FMT_SIZE(YUYV));
+          rtnBuf->dwMaxVideoFrameSize = MAX_FRAME_SIZE(w,h,VS_FMT_SIZE(YUYV));
           break;
         }
       }

@@ -78,6 +78,7 @@ static struct pt lepton_task_pt;
 static struct pt usb_task_pt;
 static struct pt uart_task_pt;
 static struct pt button_task_pt;
+static struct pt lepton_attribute_xfer_task_pt;
 
 /* USER CODE END PV */
 
@@ -164,23 +165,11 @@ int main(void)
 
   init_lepton_command_interface();
 
-#ifndef Y16
-  disable_telemetry_and_radiometry();
-#endif
-
-#ifdef ENABLE_LEPTON_AGC
-  enable_lepton_agc();
-#endif
-
-#ifdef Y16
-  enable_telemetry();
-#else
-  enable_rgb888(PSUEDOCOLOR_LUT);
-#endif
-
+#if defined(TMP007)
   DEBUG_PRINTF("reading_tmp007_regs...\n\r");
 
   read_tmp007_regs();
+#endif
 
   DEBUG_PRINTF("Initialized...\n\r");
 
@@ -191,6 +180,7 @@ int main(void)
   PT_INIT(&lepton_task_pt);
   PT_INIT(&usb_task_pt);
   PT_INIT(&uart_task_pt);
+  PT_INIT(&lepton_attribute_xfer_task_pt);
 
   /* USER CODE END 2 */
 
@@ -203,10 +193,14 @@ int main(void)
   /* USER CODE BEGIN 3 */
 
 	  PT_SCHEDULE(lepton_task(&lepton_task_pt));
+#ifndef THERMAL_DATA_UART
 	  PT_SCHEDULE(usb_task(&usb_task_pt));
+#else
 	  PT_SCHEDULE(uart_task(&uart_task_pt));
+#endif
 	  PT_SCHEDULE(button_task(&button_task_pt));
 
+	  PT_SCHEDULE(lepton_attribute_xfer_task(&lepton_attribute_xfer_task_pt));
   }
   /* USER CODE END 3 */
 
@@ -241,7 +235,7 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
@@ -482,13 +476,13 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Stream3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
   /* DMA1_Stream4_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
   /* DMA2_Stream0_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
 
 }

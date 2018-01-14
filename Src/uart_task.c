@@ -30,7 +30,6 @@ extern volatile int restart_frame;
 PT_THREAD( uart_task(struct pt *pt))
 {
 	static uint16_t val;
-	static int last_frame_count = 0;
 	static int count;
 	static int i,j;
 	static lepton_buffer *last_buffer;
@@ -41,21 +40,14 @@ PT_THREAD( uart_task(struct pt *pt))
 
 	while (1)
 	{
-#ifdef THERMAL_DATA_UART 
-		 PT_WAIT_UNTIL(pt, get_lepton_buffer(NULL) != last_frame_count);
-		 last_frame_count = get_lepton_buffer(&last_buffer);
+		PT_WAIT_UNTIL(pt, (last_buffer = dequeue_lepton_buffer()) != NULL);
 
 		 count = 0;
 		 for (j = 0; j < 60; j++)
 		 {
 			 for (i = 0; i < 80; i++)
 			 {
-#ifdef Y16
-				 val = last_buffer->lines[j].data.image_data[i];
-#else
-				 rgb_t rgbval = last_buffer->lines[j].data.image_data[i];
-				 val = (0.257f * (float)rgbval.r) + (0.504f * (float)rgbval.g) + (0.098f * (float)rgbval.b);
-#endif
+				 val = last_buffer->lines.y16[j].data.image_data[i];
 
 				 lepton_raw[count++] = ((val>>8)&0xff);
 				 lepton_raw[count++] = (val&0xff);
@@ -96,9 +88,6 @@ PT_THREAD( uart_task(struct pt *pt))
 		   LEPTON_USART_PORT->DR = (*ptr++ );
 		 }
 
-#else
-		 PT_YIELD(pt);
-#endif
 	}
 	PT_END(pt);
 }

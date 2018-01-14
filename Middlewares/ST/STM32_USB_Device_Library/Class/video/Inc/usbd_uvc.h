@@ -60,7 +60,7 @@
 
 #define UVC_IN_EP                                     0x81  /* EP1 for data IN */
 #define UVC_CMD_EP                                    0x82  /* EP2 for UVC commands */
-#define VIDEO_PACKET_SIZE                             ((unsigned int)(482))
+#define VIDEO_PACKET_SIZE                             ((unsigned int)(962))
 #define VIDEO_MAX_SETUP_PACKET_SIZE                   ((unsigned int)(1024))
 #define CMD_PACKET_SIZE                               ((unsigned int)(8))
 
@@ -69,20 +69,16 @@
 enum _vs_fmt_indexes {
   VS_FMT_INDEX_YUYV = 1,
   VS_FMT_INDEX_Y16,
-  VS_FMT_INDEX_NV12,
-  VS_FMT_INDEX_YU12,
   VS_FMT_INDEX_GREY,
   VS_FMT_INDEX_RGB565,
   VS_FMT_INDEX_BGR3,
 };
 
-#define VS_NUM_FORMATS 7
+#define VS_NUM_FORMATS 5
 
 enum _vs_fmt_size {
   VS_FMT_SIZE_YUYV = 16,
   VS_FMT_SIZE_Y16  = 16,
-  VS_FMT_SIZE_NV12 = 12,
-  VS_FMT_SIZE_YU12 = 12,
   VS_FMT_SIZE_GREY =  8,
   VS_FMT_SIZE_RGB565 = 16,
   VS_FMT_SIZE_BGR3 = 24,

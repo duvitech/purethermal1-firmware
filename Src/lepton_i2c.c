@@ -2,6 +2,7 @@
 #include "stm32f4xx.h"
 #include "stm32f4xx_hal.h"
 
+#include "lepton.h"
 #include "lepton_i2c.h"
 #include "project_config.h"
 
@@ -25,6 +26,36 @@
 
 extern I2C_HandleTypeDef hi2c1;
 LEP_CAMERA_PORT_DESC_T hport_desc;
+
+extern volatile uint8_t g_lepton_type_3;
+
+static void set_lepton_type()
+{
+  LEP_RESULT result;
+  LEP_OEM_PART_NUMBER_T part_number;
+  result = LEP_GetOemFlirPartNumber(&hport_desc, &part_number);
+
+  // 500-0643-00 : 50 deg (l2)
+  // 500-0659-01 : shuttered 50 deg (l2)
+  // 500-0690-00 : 25 deg (l2)
+  // 500-0763-01 : shuttered 50 deg + radiometric (l2.5)
+  // 500-0726-01 : shuttered 50 deg (l3)
+
+  if (result != LEP_OK ||
+      strncmp(part_number.value, "500-06xx", 6) == 0 ||
+      strncmp(part_number.value, "500-0763", 8) == 0)
+  {
+    g_lepton_type_3 = 0;
+  }
+  else
+  {
+    // let default case be l3, because this will be more likely to cover new products
+    g_lepton_type_3 = 1;
+  }
+
+  LEP_SetOemGpioVsyncPhaseDelay(&hport_desc,LEP_OEM_VSYNC_DELAY_PLUS_2);
+  LEP_SetOemGpioMode(&hport_desc, LEP_OEM_GPIO_MODE_VSYNC);
+}
 
 static HAL_StatusTypeDef print_cust_serial_number()
 {
@@ -195,7 +226,20 @@ HAL_StatusTypeDef enable_lepton_agc()
   return HAL_OK;
 }
 
-HAL_StatusTypeDef disable_telemetry_and_radiometry(void)
+HAL_StatusTypeDef disable_lepton_agc()
+{
+  LEP_RESULT result;
+
+  result = LEP_SetAgcEnableState(&hport_desc, LEP_AGC_DISABLE);
+  if (result != LEP_OK) {
+    DEBUG_PRINTF("Could not enable AGC\r\n");
+    return HAL_ERROR;
+  }
+
+  return HAL_OK;
+}
+
+HAL_StatusTypeDef disable_telemetry(void)
 {
   LEP_RESULT result;
 
@@ -205,11 +249,7 @@ HAL_StatusTypeDef disable_telemetry_and_radiometry(void)
     return HAL_ERROR;
   }
 
-  result = LEP_SetRadEnableState(&hport_desc, LEP_RAD_DISABLE);
-  if (result != LEP_OK) {
-    DEBUG_PRINTF("Could not disable radiometry %d\r\n", result);
-    return HAL_ERROR;
-  }
+  g_telemetry_num_lines = 0;
 
   return HAL_OK;
 }
@@ -230,6 +270,8 @@ HAL_StatusTypeDef enable_telemetry(void)
     return HAL_ERROR;
   }
 
+  g_telemetry_num_lines = 3;
+
   return HAL_OK;
 }
 
@@ -240,6 +282,12 @@ HAL_StatusTypeDef enable_rgb888(LEP_PCOLOR_LUT_E pcolor_lut)
 
   LEP_GetOemVideoOutputFormat(&hport_desc, &fmt);
   DEBUG_PRINTF("Current format: %d\r\n", fmt);
+
+  result = LEP_SetRadEnableState(&hport_desc, LEP_RAD_DISABLE);
+  if (result != LEP_OK) {
+    DEBUG_PRINTF("Could not disable radiometry %d\r\n", result);
+    return HAL_ERROR;
+  }
 
   result = LEP_SetOemVideoOutputFormat(&hport_desc, LEP_VIDEO_OUTPUT_FORMAT_RGB888);
   if (result != LEP_OK) {
@@ -255,6 +303,32 @@ HAL_StatusTypeDef enable_rgb888(LEP_PCOLOR_LUT_E pcolor_lut)
     DEBUG_PRINTF("Could not set color lut: %d\r\n", result);
     return HAL_ERROR;
   }
+
+  return HAL_OK;
+}
+
+HAL_StatusTypeDef enable_raw14()
+{
+  LEP_RESULT result;
+  LEP_OEM_VIDEO_OUTPUT_FORMAT_E fmt;
+
+  LEP_GetOemVideoOutputFormat(&hport_desc, &fmt);
+  DEBUG_PRINTF("Current format: %d\r\n", fmt);
+
+  result = LEP_SetRadEnableState(&hport_desc, LEP_RAD_ENABLE);
+  if (result != LEP_OK) {
+    DEBUG_PRINTF("Could not disable radiometry %d\r\n", result);
+    return HAL_ERROR;
+  }
+
+  result = LEP_SetOemVideoOutputFormat(&hport_desc, LEP_VIDEO_OUTPUT_FORMAT_RAW14);
+  if (result != LEP_OK) {
+    DEBUG_PRINTF("Could not set output format %d\r\n", result);
+    return HAL_ERROR;
+  }
+
+  LEP_GetOemVideoOutputFormat(&hport_desc, &fmt);
+  DEBUG_PRINTF("New format: %d\r\n", fmt);
 
   return HAL_OK;
 }
@@ -292,6 +366,34 @@ HAL_StatusTypeDef init_lepton_command_interface(void)
 
   if (print_aux_temp_celcius() != HAL_OK)
     return HAL_ERROR;
+
+  set_lepton_type();
+
+  return HAL_OK;
+}
+
+HAL_StatusTypeDef lepton_low_power()
+{
+  LEP_RESULT result;
+
+  result = LEP_RunOemLowPowerMode2( &hport_desc );
+  if (result != LEP_OK) {
+    DEBUG_PRINTF("Could not set low power mode 2: %d\r\n", result);
+    return result;
+  }
+
+  return HAL_OK;
+}
+
+HAL_StatusTypeDef lepton_power_on()
+{
+  LEP_RESULT result;
+
+  result = LEP_RunOemPowerOn( &hport_desc );
+  if (result != LEP_OK) {
+    DEBUG_PRINTF("Could not set power on: %d\r\n", result);
+    return result;
+  }
 
   return HAL_OK;
 }

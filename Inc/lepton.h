@@ -5,21 +5,15 @@
 
 #define FRAME_HEADER_LENGTH (2)
 #define FRAME_LINE_LENGTH (80)
-#ifdef Y16
-#define FRAME_TOTAL_LENGTH (FRAME_HEADER_LENGTH + FRAME_LINE_LENGTH)
-#else
-#define FRAME_TOTAL_LENGTH (FRAME_HEADER_LENGTH + FRAME_LINE_LENGTH + 40)
-#endif
-#define FRAME_TOTAL_SIZE_Y16 (FRAME_TOTAL_LENGTH * sizeof(uint16_t) * 1)
-#define FRAME_TOTAL_SIZE_RGB (FRAME_TOTAL_LENGTH * sizeof(uint8_t) * 3)
 #define IMAGE_NUM_LINES (60)
-#ifdef Y16
-#define TELEMETRY_NUM_LINES (3)
-#else
-#define TELEMETRY_NUM_LINES (0)
-#endif
+#define TELEMETRY_MAX_LINES (3)
 #define IMAGE_OFFSET_LINES (0)
 #define TELEMETRY_OFFSET_LINES (IMAGE_NUM_LINES)
+
+extern volatile uint8_t g_uvc_stream_status;
+extern volatile uint8_t g_lepton_type_3;
+extern volatile uint8_t g_telemetry_num_lines;
+extern volatile uint8_t g_format_y16;
 
 typedef enum {
   LEPTON_STATUS_OK = 0,
@@ -27,12 +21,6 @@ typedef enum {
   LEPTON_STATUS_RESYNC = 2,
   LEPTON_STATUS_CONTINUE = 4,
 } lepton_status;
-
-typedef enum {
-  LEPTON_XFER_STATE_START = 0,
-  LEPTON_XFER_STATE_SYNC = 1,
-  LEPTON_XFER_STATE_DATA = 2,
-} lepton_xfer_state;
 
 typedef struct __attribute__((packed)) _telemetry_data_l2 {
 
@@ -93,43 +81,35 @@ typedef struct __attribute__((packed)) _rgb {
   uint8_t b;
 } rgb_t;
 
-#ifdef Y16
-typedef struct __attribute__((packed)) _vospi_packet {
+typedef struct __attribute__((packed)) _vospi_packet_y16 {
   uint16_t header[2];
   union {
     uint16_t image_data[FRAME_LINE_LENGTH];
     telemetry_data_l2 telemetry_data;
   } data;
-} vospi_packet;
-#else
-typedef struct __attribute__((packed)) _vospi_packet {
+} vospi_packet_y16;
+
+typedef struct __attribute__((packed)) _vospi_packet_rgb {
   uint16_t header[2];
   union {
     rgb_t image_data[FRAME_LINE_LENGTH];
     telemetry_data_l2 telemetry_data;
   } data;
-} vospi_packet;
-#endif
+} vospi_packet_rgb;
 
 typedef struct _lepton_buffer {
-  vospi_packet lines[IMAGE_NUM_LINES + TELEMETRY_NUM_LINES];
+  union {
+	uint8_t data[0];
+    vospi_packet_y16 y16[IMAGE_NUM_LINES + TELEMETRY_MAX_LINES];
+    vospi_packet_rgb rgb[IMAGE_NUM_LINES + TELEMETRY_MAX_LINES];
+  } lines;
   uint8_t number;
   lepton_status status;
+  uint8_t segment;
 } lepton_buffer;
 
-typedef struct __attribute__((packed)) _yuv422 {
-  uint8_t uv;
-  uint8_t y;
-} yuv422_t;
-
-typedef yuv422_t yuv422_row_t[FRAME_LINE_LENGTH];
-
-typedef struct __attribute__((packed)) _yuv422_buffer {
-  yuv422_row_t data[IMAGE_NUM_LINES];
-} yuv422_buffer_t;
-
 lepton_status complete_lepton_transfer(lepton_buffer *);
-lepton_buffer* lepton_transfer(void);
+void lepton_transfer(lepton_buffer *buf, int nlines);
 
 void print_image_binary_background(void);
 void lepton_init(void );
